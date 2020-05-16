@@ -9,17 +9,17 @@
  *
  */
 
-StableFluidSimulator::StableFluidSimulator() : 
-	rowSize(512), 
-	colSize(512), 
-	totalSize(rowSize * colSize), 
+StableFluidSimulator::StableFluidSimulator(size_t _rowSize, size_t _colSize) : 
+	rowSize(_rowSize), 
+	colSize(_colSize), 
+	totalSize((rowSize+2)*(colSize+2)), 
 	minX(1.0f),
-    maxX(rowSize - 1.0f),
+    maxX(rowSize + 1.0f),
     minY(1.0f),
-    maxY(colSize - 1.0f),
+    maxY(colSize + 1.0f),
 	visc(0.0f),
     diff(0.0f),
-    vorticity(1.0f),
+    vorticity(0.0f),
     timeStep(1.0f)
 {
 	vx.resize(totalSize);
@@ -39,20 +39,45 @@ StableFluidSimulator::StableFluidSimulator() :
 	lenGrad.resize(totalSize);
 	vcfx.resize(totalSize);
 	vcfy.resize(totalSize);
+    tx0.resize(totalSize);
+    ty0.resize(totalSize);
+    tx.resize(totalSize);
+    ty.resize(totalSize);
 
-	for(size_t i = 0; i < rowSize; ++i)
+    for(size_t i = 0; i < totalSize; ++i)
     {
-        for(size_t j=0; j < colSize; ++j)
+        px[i] = 0.0f;
+        py[i] = 0.0f;
+        vx[i] = 0.0f;
+        vy[i] = 0.0f;
+        vx0[i] = 0.0f;
+        vy0[i] = 0.0f;
+        d[i] = 0.0f;
+        d0[i] = 0.0f;
+        p[i] = 0.0f;
+        div[i] = 0.0f;
+        tx0[i] = 0.0f;
+        ty0[i] = 0.0f;
+        tx[i] = 0.0f;
+        ty[i] = 0.0f;
+    }
+
+	for(size_t i = 0; i < rowSize+2; ++i)
+    {
+        for(size_t j=0; j < colSize+2; ++j)
         {
             px[Get1DIndex(i, j)] = (float)i + 0.5f;
             py[Get1DIndex(i, j)] = (float)j + 0.5f;
+
+            tx[Get1DIndex(i, j)] = (float)i + 0.5f;
+            ty[Get1DIndex(i, j)] = (float)j + 0.5f;
         }
     }
 }
 
 void StableFluidSimulator::Reset()
 {
-	for(size_t i = 0; i < rowSize; ++i)
+	for(size_t i = 0; i < totalSize; ++i)
     {
         vx[i] = 0.0f;
         vy[i] = 0.0f;
@@ -62,70 +87,72 @@ void StableFluidSimulator::Reset()
 
 void StableFluidSimulator::SetBoundary(std::vector<float>& value, BoundaryType boundaryType)
 {
-	float rowMultiplier = 1.0f;
-	float colMultiplier = 1.0f;
+	float xMultiplier = 1.0f;
+	float yMultiplier = 1.0f;
 
 	switch (boundaryType)
 	{
 	case BoundaryType::Density :
 		break;
 	case BoundaryType::VelocityAlongX :
-		colMultiplier = -1.0f;
+		xMultiplier = -1.0f;
 		break;
 	case BoundaryType::VelocityAlongY :
-		rowMultiplier = -1.0f;
+		yMultiplier = -1.0f;
 		break;
 	default:
 		break;
 	}
 
-	for(size_t i = 1; i <= rowSize-2; ++i)
-	{
-		value[Get1DIndex(i, 0)] = rowMultiplier * value[Get1DIndex(i, 1)];
-		value[Get1DIndex(i, colSize-1)] = rowMultiplier * value[Get1DIndex(i, colSize-2)];
-	}
-	for(size_t j = 1; j <= colSize-2; ++j)
-	{
-		value[Get1DIndex(0, j)] = colMultiplier * value[Get1DIndex(1, j)];
-		value[Get1DIndex(rowSize-1, j)] = colMultiplier * value[Get1DIndex(rowSize-2, j)];
-	}
+    for(size_t i = 1; i <= rowSize; i++) 
+    {
+        value[Get1DIndex(0, i)]           = xMultiplier * value[Get1DIndex(1,i)];
+        value[Get1DIndex(rowSize+1,i)]    = xMultiplier * value[Get1DIndex(rowSize,i)];
+        value[Get1DIndex(i,0  )]          = yMultiplier * value[Get1DIndex(i,1)];
+        value[Get1DIndex(i,rowSize+1)]    = yMultiplier * value[Get1DIndex(i,rowSize)];
+    }
+    value[Get1DIndex(0, 0)]                 = 0.5f*(value[Get1DIndex(1, 0)]+value[Get1DIndex(0, 1)]);
+    value[Get1DIndex(0, rowSize+1)]         = 0.5f*(value[Get1DIndex(1, rowSize+1)]+value[Get1DIndex(0, rowSize)]);
+    value[Get1DIndex(rowSize+1, 0)]         = 0.5f*(value[Get1DIndex(rowSize, 0)]+value[Get1DIndex(rowSize+1, 1)]);
+    value[Get1DIndex(rowSize+1, rowSize+1)] = 0.5f*(value[Get1DIndex(rowSize, rowSize+1)]+value[Get1DIndex(rowSize+1, rowSize)]);
+}
 
-	value[Get1DIndex(0, 0)] = (value[Get1DIndex(0, 1)]+value[Get1DIndex(1, 0)])/2;
-    value[Get1DIndex(rowSize-1, 0)] = (value[Get1DIndex(rowSize-2, 0)]+value[Get1DIndex(rowSize-1, 1)])/2;
-    value[Get1DIndex(0, colSize-1)] = (value[Get1DIndex(0, colSize-2)]+value[Get1DIndex(1, colSize-1)])/2;
-    value[Get1DIndex(rowSize-1, colSize-1)] = (value[Get1DIndex(rowSize-2, colSize-1)]+value[Get1DIndex(rowSize-1, colSize-2)])/2;
+void StableFluidSimulator::LinearSolve(std::vector<float>& value, std::vector<float>& value0,
+    float a, float c, BoundaryType boundaryType)
+{
+    for(size_t iteration=0; iteration < 20; ++iteration) 
+    {
+        for(size_t i = 1; i <= rowSize; ++i)
+        { 
+            for(size_t j = 1; j <= colSize; ++j)
+            {
+                value[Get1DIndex(i, j)] = (value0[Get1DIndex(i, j)] + a*(value[Get1DIndex(i-1, j)]+value[Get1DIndex(i+1, j)]+value[Get1DIndex(i, j-1)]+value[Get1DIndex(i, j+1)]))/c;
+            } 
+        }
+
+        SetBoundary(value, boundaryType);
+    }
 }
 
 void StableFluidSimulator::Projection()
 {
-	for(size_t i=1; i<=rowSize-2; ++i)
-    {
-        for(size_t j=1; j<=colSize-2; ++j)
+    for(size_t i=1; i <= rowSize; ++i)
+    { 
+        for(size_t j=1; j <= colSize; ++j)
         {
-            div[Get1DIndex(i, j)] = 0.5f * (vx[Get1DIndex(i+1, j)]-vx[Get1DIndex(i-1, j)]+vy[Get1DIndex(i, j+1)]-vy[Get1DIndex(i, j-1)]);
-            p[Get1DIndex(i, j)] = 0.0f;;
+            div[Get1DIndex(i, j)] = -0.5f*(vx[Get1DIndex(i+1,j)]-vx[Get1DIndex(i-1,j)]+vy[Get1DIndex(i,j+1)]-vy[Get1DIndex(i,j-1)]);
+            p[Get1DIndex(i,j)] = 0;
         }
     }
     SetBoundary(div, BoundaryType::Density);
     SetBoundary(p, BoundaryType::Density);
 
-    //projection iteration
-    for(size_t k=0; k<20; k++)
-    {
-        for(size_t i=1; i<=rowSize-2; ++i)
-        {
-            for(size_t j=1; j<=colSize-2; ++j)
-            {
-                p[Get1DIndex(i, j)] = (p[Get1DIndex(i+1, j)]+p[Get1DIndex(i-1, j)]+p[Get1DIndex(i, j+1)]+p[Get1DIndex(i, j-1)]-div[Get1DIndex(i, j)])/4.0f;
-            }
-        }
-        SetBoundary(p, BoundaryType::Density);
-    }
+    LinearSolve(p, div, 1.0, 4.0, BoundaryType::Density);
 
     //velocity minus grad of Pressure
-    for(size_t i=1; i<=rowSize-2; ++i)
+    for(size_t i = 1; i <= rowSize; ++i)
     {
-        for(size_t j=1; j<=colSize-2; ++j)
+        for(size_t j = 1; j <= colSize; ++j)
         {
             vx[Get1DIndex(i, j)] -= 0.5f*(p[Get1DIndex(i+1, j)]-p[Get1DIndex(i-1, j)]);
             vy[Get1DIndex(i, j)] -= 0.5f*(p[Get1DIndex(i, j+1)]-p[Get1DIndex(i, j-1)]);
@@ -144,14 +171,14 @@ void StableFluidSimulator::Advection(std::vector<float>& value, std::vector<floa
     int i1;
     int j0;
     int j1;
-    float wL;
-    float wR;
-    float wB;
-    float wT;
+    float iL;
+    float iR;
+    float iT;
+    float iB;
 
-    for(size_t i = 1; i <= rowSize-2; ++i)
+    for(size_t i = 1; i <= rowSize; ++i)
     {
-        for(size_t j = 1; j <= colSize-2; ++j)
+        for(size_t j = 1; j <= colSize; ++j)
         {
             oldX = px[Get1DIndex(i, j)] - u[Get1DIndex(i, j)]*timeStep;
             oldY = py[Get1DIndex(i, j)] - v[Get1DIndex(i, j)]*timeStep;
@@ -166,13 +193,14 @@ void StableFluidSimulator::Advection(std::vector<float>& value, std::vector<floa
             i1 = i0+1;
             j1 = j0+1;
             
-            wL = px[Get1DIndex(i1, j0)]-oldX;
-            wR = 1.0f-wL;
-            wB = py[Get1DIndex(i0, j1)]-oldY;
-            wT = 1.0f-wB;
+            iR = oldX - px[Get1DIndex(i0, j0)];
+            iT = oldY - py[Get1DIndex(i0, j0)];
+            iL = 1.0f - iR;
+            iB = 1.0f - iT;
 
-            value[Get1DIndex(i, j)] = wB*(wL*value0[Get1DIndex(i0, j0)]+wR*value0[Get1DIndex(i1, j0)])+
-                                wT*(wL*value0[Get1DIndex(i0, j1)]+wR*value0[Get1DIndex(i1, j1)]);
+            value[Get1DIndex(i, j)] = 
+                iB * (iL*value0[Get1DIndex(i0, j0)] + iR*value0[Get1DIndex(i1, j0)]) +
+                iT * (iL*value0[Get1DIndex(i0, j1)] + iR*value0[Get1DIndex(i1, j1)]);
         }
     }
     
@@ -182,24 +210,8 @@ void StableFluidSimulator::Advection(std::vector<float>& value, std::vector<floa
 void StableFluidSimulator::Diffusion(std::vector<float>& value, std::vector<float>& value0, 
 		float rate, BoundaryType boundaryType)
 {
-    for(size_t i = 0; i < totalSize; ++i)
-	{
-		value[i] = 0.0f;
-	}
-    float a = rate*timeStep;
-
-    for(size_t k = 0; k < 20; ++k)
-    {
-        for(size_t i = 1; i <= rowSize-2; ++i)
-        {
-            for(size_t j = 1; j <= colSize-2; ++j)
-            {
-                value[Get1DIndex(i, j)] = (value0[Get1DIndex(i, j)]+a*(value[Get1DIndex(i+1, j)]+value[Get1DIndex(i-1, j)]+value[Get1DIndex(i, j+1)]+value[Get1DIndex(i, j-1)])) / (4.0f*a+1.0f);
-            }
-        }
-
-        SetBoundary(value, boundaryType);
-    }
+    float a = timeStep * diff; 
+    LinearSolve(value, value0, a, 1 + 4*a, boundaryType);
 }
 
 void StableFluidSimulator::VortConfinement()
@@ -253,15 +265,11 @@ void StableFluidSimulator::VortConfinement()
 
 void StableFluidSimulator::AddSource()
 {
-    for(size_t i = 1; i <= rowSize-2; ++i)
+    for(size_t i = 0; i <= totalSize; ++i)
     {
-        for(size_t j = 1; j <= colSize-2; ++j)
-        {
-            int index = Get1DIndex(i, j);
-            vx[index] += vx0[index];
-            vy[index] += vy0[index];
-            d[index] += d0[index];
-        }
+        vx[i] += vx0[i];
+        vy[i] += vy0[i];
+        d[i] += d0[i];
     }
 
     SetBoundary(vx, BoundaryType::VelocityAlongX);
@@ -271,13 +279,10 @@ void StableFluidSimulator::AddSource()
 
 void StableFluidSimulator::AnimateVel()
 {
-    if(diff > 0.0f)
-    {
-        std::swap(vx0, vx);
-        std::swap(vy0, vy);
-        Diffusion(vx, vx0, diff, BoundaryType::VelocityAlongX);
-        Diffusion(vy, vy0, diff, BoundaryType::VelocityAlongY);
-    }
+    std::swap(vx0, vx); 
+    std::swap(vy0, vy); 
+    Diffusion(vx, vx0, visc, BoundaryType::VelocityAlongX);
+    Diffusion(vy, vy0, visc, BoundaryType::VelocityAlongY);
 
     Projection();
 
@@ -291,11 +296,22 @@ void StableFluidSimulator::AnimateVel()
 
 void StableFluidSimulator::AnimateDen()
 {
-    if(visc > 0.0f)
-    {
-        std::swap(d0, d);
-        Diffusion(d, d0, visc, BoundaryType::Density);
-    }
     std::swap(d0, d);
     Advection(d, d0, vx, vy, BoundaryType::Density);
+
+    std::swap(d0, d);
+    Diffusion(d, d0, diff, BoundaryType::Density);
+}
+
+void StableFluidSimulator::AnimateTex()
+{
+    std::swap(tx0, tx);
+    std::swap(ty0, ty);
+    Advection(tx, tx0, vx, vy, BoundaryType::Density);
+    Advection(ty, ty0, vx, vy, BoundaryType::Density);
+
+    std::swap(tx0, tx);
+    std::swap(ty0, ty);
+    Diffusion(tx, tx0, diff, BoundaryType::Density);
+    Diffusion(ty, ty0, diff, BoundaryType::Density);
 }

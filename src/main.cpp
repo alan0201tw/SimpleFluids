@@ -10,19 +10,35 @@
 // vendor library
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#undef STB_IMAGE_WRITE_IMPLEMENTATION
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#undef STB_IMAGE_IMPLEMENTATION
 
 #define HANDMADE_MATH_IMPLEMENTATION
 #include "HandmadeMath.h"
+#undef HANDMADE_MATH_IMPLEMENTATION
 
 #include "stable_fluids.hpp"
 
 namespace
 {
+    const std::string texFileName = "resources/texture.png";
     const size_t image_width = 512;
     const size_t image_height = 512;
     // const float width_to_height_ratio = (float)image_width / (float)image_height;
 
     unsigned char image[3 * image_width * image_height];
+    unsigned char* texData;
+}
+
+static hmm_vec3 sample_tex(size_t u, size_t v)
+{
+    return hmm_vec3{{
+        (int)texData[3 * v * image_width + 3 * u + 0] / 255.0f, 
+        (int)texData[3 * v * image_width + 3 * u + 1] / 255.0f,
+        (int)texData[3 * v * image_width + 3 * u + 2] / 255.0f }};
 }
 
 static void write_to_image(size_t u, size_t v, hmm_vec3 value)
@@ -58,18 +74,17 @@ static void output_image_to_file(std::string fileName)
 
 int main(int argc, char* argv[])
 {
-    // for(size_t i = 0; i < image_width; ++i)
-    // {
-    //     for(size_t j = 0; j < image_height; ++j)
-    //     {
-    //         hmm_vec3 color{{ 0.0f, 0.0f, (float)(i + j) / (image_width + image_height) }};
+    int width, height, channel;
+    texData = stbi_load(texFileName.c_str(), &width, &height, &channel, 0);
+    std::cout << "SYS : Loading texture : " << texFileName << ", width = " << width << ", height = " << height << ", channel = " << channel << "\n";
+    if(texData == nullptr)
+    {
+        std::cerr << "Error when loading texture : " << texFileName << "\n";
+    }
 
-    //         write_to_image(i, j, color);
-    //     }
-    // }
-    // output_image_to_file("tmp.png");
+    ////////////////////////////////
 
-    StableFluidSimulator simulator;
+    StableFluidSimulator simulator(image_width, image_height);
     simulator.Reset();
 
     for(size_t i = image_width/2 - 50; i < image_width/2 + 50; ++i)
@@ -79,36 +94,52 @@ int main(int argc, char* argv[])
             // std::cout << i << ", " << j << std::endl;
             simulator.SetVX0(i, j, 15.0f * (2.0f * drand48() - 1.0f));
             simulator.SetVY0(i, j, 15.0f * (2.0f * drand48() - 1.0f));
-            simulator.SetD0(i, j, 2.0f);
+            // simulator.SetVX0(i, j, 1.0f);
+            // simulator.SetVY0(i, j, 1.0f);
+            simulator.SetD0(i, j, 10.0f);
         }
     }
     simulator.AddSource();
 
     size_t iteration = 0;
+    
     while(iteration++ < 1000)
     {
         simulator.CleanBuffer();
-        simulator.VortConfinement();
+        // simulator.VortConfinement();
         simulator.AnimateVel();
+        simulator.AnimateTex();
         simulator.AnimateDen();
 
-        for(size_t i = 0; i < image_width; ++i)
+        for(size_t i = 1; i < image_width-1; ++i)
         {
-            for(size_t j = 0; j < image_height; ++j)
+            for(size_t j = 1; j < image_height-1; ++j)
             {
-                float d = simulator.GetBilinearFilteredDensity(i, j);
+                // float d = simulator.GetBilinearFilteredDensity(i, j);
 
-                hmm_vec3 color{{ 
-                    1.0f - d, 
-                    1.0f - d,
-                    1.0f - d }};
+                // hmm_vec3 color{{ 
+                //     1.0f - d, 
+                //     1.0f - d,
+                //     1.0f - d }};
+
+                auto uv = simulator.GetTextureCoord(i, j);
+                // i, j is btw [0, 512]
+                hmm_vec3 color{{0.0f, 0.0f, 0.0f}};
+                color += sample_tex(uv.first, uv.second);
+                color += sample_tex(uv.first+1, uv.second);
+                color += sample_tex(uv.first, uv.second+1);
+                color += sample_tex(uv.first+1, uv.second+1);
+                color *= 0.25f;
+
+                // hmm_vec3 color{{
+                //     idx / (512.0f * 512.0f * 3.0f), 
+                //     idx / (512.0f * 512.0f * 3.0f),
+                //     idx / (512.0f * 512.0f * 3.0f) }};
 
                 write_to_image(i, j, color);
             }
         }
 
         output_image_to_file("output/image" + std::to_string(iteration) + ".png");
-
     }
-
 }

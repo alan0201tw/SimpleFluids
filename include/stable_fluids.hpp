@@ -7,6 +7,7 @@
  */
 
 #include <vector>
+#include <cstddef>
 
 enum class BoundaryType : short
 {
@@ -18,13 +19,14 @@ enum class BoundaryType : short
 class StableFluidSimulator
 {
 public:
-	StableFluidSimulator();
+	StableFluidSimulator(size_t _rowSize, size_t _colSize);
 
 	void Reset();
     void VortConfinement();
     void AddSource();
     void AnimateVel();
     void AnimateDen();
+	void AnimateTex();
 
 	inline float GetBilinearFilteredDensity(size_t i, size_t j)
 	{
@@ -32,6 +34,11 @@ public:
 			 + d[Get1DIndex(i, j-1)] 
 			 + d[Get1DIndex(i-1, j)] 
 			 + d[Get1DIndex(i, j)]) * 0.25f;
+	}
+
+	inline std::pair<float, float> GetTextureCoord(size_t i, size_t j)
+	{
+		return { tx[Get1DIndex(i, j)], ty[Get1DIndex(i, j)] };
 	}
 
 	void SetD0(size_t i, size_t j, float value)
@@ -106,7 +113,13 @@ private:
 	std::vector<float> vcfx;
 	std::vector<float> vcfy;
 
-	inline size_t Get1DIndex(size_t i, size_t j) { return j * rowSize + i; }
+	// for textures
+	std::vector<float> tx0; // texture coordinates
+	std::vector<float> ty0;
+	std::vector<float> tx; // texture coordinates
+	std::vector<float> ty;
+
+	inline size_t Get1DIndex(size_t i, size_t j) { return j * (rowSize+2) + i; }
 
 	void SetBoundary(std::vector<float>& value, BoundaryType boundaryType);
 	void Projection();
@@ -114,4 +127,8 @@ private:
 		std::vector<float>& u, std::vector<float>& v, BoundaryType boundaryType);
     void Diffusion(std::vector<float>& value, std::vector<float>& value0, 
 		float rate, BoundaryType boundaryType);
+
+	// additional
+	void LinearSolve(std::vector<float>& value, std::vector<float>& value0,
+		float a, float c, BoundaryType boundaryType);
 };
