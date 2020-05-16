@@ -8,23 +8,66 @@
 
 #include <vector>
 
+enum class BoundaryType : short
+{
+	Density,
+	VelocityAlongX,
+	VelocityAlongY,
+};
+
 class StableFluidSimulator
 {
 public:
 	StableFluidSimulator();
-	~StableFluidSimulator();
+
+	void Reset();
+    void VortConfinement();
+    void AddSource();
+    void AnimateVel();
+    void AnimateDen();
+
+	inline float GetBilinearFilteredDensity(size_t i, size_t j)
+	{
+		return (d[Get1DIndex(i-1, j-1)]
+			 + d[Get1DIndex(i, j-1)] 
+			 + d[Get1DIndex(i-1, j)] 
+			 + d[Get1DIndex(i, j)]) * 0.25f;
+	}
+
+	void SetD0(size_t i, size_t j, float value)
+	{
+		d0[Get1DIndex(i, j)] = value;
+	}
+
+	void SetVX0(size_t i, size_t j, float value)
+	{
+		vx0[Get1DIndex(i, j)] = value;
+	}
+
+	void SetVY0(size_t i, size_t j, float value)
+	{
+		vy0[Get1DIndex(i, j)] = value;
+	}
+
+	void CleanBuffer()
+	{
+		for(size_t i = 0; i < totalSize; ++i)
+		{
+			vx0[i] = 0.0f;
+			vy0[i] = 0.0f;
+			d0[i] = 0.0f;
+		}
+	}
 
 private:
     const size_t rowSize;
 	const size_t colSize;
 	const size_t totalSize;
 
-	const float h; // = 1.0f;
-
-	// float minX;
-	// float maxX;
-	// float minY;
-	// float maxY;
+	const float minX;
+	const float maxX;
+	const float minY;
+	const float maxY;
 	/*
 	minX = 1.0f;
     maxX = rowSize-1.0f;
@@ -33,11 +76,10 @@ private:
 	*/
 
 	//params
-	float visc;
-	float diff;
-	float vorticity;
-	float timeStep;
-
+	const float visc;
+	const float diff;
+	const float vorticity;
+	const float timeStep;
 	/*
     visc = 0.0f;
     diff = 0.0f;
@@ -63,4 +105,13 @@ private:
 	std::vector<float> lenGrad;
 	std::vector<float> vcfx;
 	std::vector<float> vcfy;
+
+	inline size_t Get1DIndex(size_t i, size_t j) { return j * rowSize + i; }
+
+	void SetBoundary(std::vector<float>& value, BoundaryType boundaryType);
+	void Projection();
+	void Advection(std::vector<float>& value, std::vector<float>& value0, 
+		std::vector<float>& u, std::vector<float>& v, BoundaryType boundaryType);
+    void Diffusion(std::vector<float>& value, std::vector<float>& value0, 
+		float rate, BoundaryType boundaryType);
 };
