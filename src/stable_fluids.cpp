@@ -69,8 +69,8 @@ StableFluidSimulator::StableFluidSimulator(size_t _rowSize, size_t _colSize) :
             px[Get1DIndex(i, j)] = (float)i + 0.5f;
             py[Get1DIndex(i, j)] = (float)j + 0.5f;
 
-            tx[Get1DIndex(i, j)] = (float)i + 0.5f;
-            ty[Get1DIndex(i, j)] = (float)j + 0.5f;
+            tx[Get1DIndex(i, j)] = (float)i;
+            ty[Get1DIndex(i, j)] = (float)j;
         }
     }
 }

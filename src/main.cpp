@@ -27,18 +27,19 @@ namespace
     const std::string texFileName = "resources/texture.png";
     const size_t image_width = 512;
     const size_t image_height = 512;
-    // const float width_to_height_ratio = (float)image_width / (float)image_height;
-
+    
     unsigned char image[3 * image_width * image_height];
+
+    int texWidth, texHeight;
     unsigned char* texData;
 }
 
 static hmm_vec3 sample_tex(size_t u, size_t v)
 {
     return hmm_vec3{{
-        (int)texData[3 * v * image_width + 3 * u + 0] / 255.0f, 
-        (int)texData[3 * v * image_width + 3 * u + 1] / 255.0f,
-        (int)texData[3 * v * image_width + 3 * u + 2] / 255.0f }};
+        (int)texData[3 * v * texWidth + 3 * u + 0] / 255.0f, 
+        (int)texData[3 * v * texWidth + 3 * u + 1] / 255.0f,
+        (int)texData[3 * v * texWidth + 3 * u + 2] / 255.0f }};
 }
 
 static void write_to_image(size_t u, size_t v, hmm_vec3 value)
@@ -74,9 +75,11 @@ static void output_image_to_file(std::string fileName)
 
 int main(int argc, char* argv[])
 {
-    int width, height, channel;
-    texData = stbi_load(texFileName.c_str(), &width, &height, &channel, 0);
-    std::cout << "SYS : Loading texture : " << texFileName << ", width = " << width << ", height = " << height << ", channel = " << channel << "\n";
+    int channel;
+    texData = stbi_load(texFileName.c_str(), &texWidth, &texHeight, &channel, 0);
+    std::cout << "SYS : Loading texture : " << texFileName 
+        << ", width = " << texWidth << ", height = " << texHeight 
+        << ", channel = " << channel << "\n";
     if(texData == nullptr)
     {
         std::cerr << "Error when loading texture : " << texFileName << "\n";
@@ -106,7 +109,7 @@ int main(int argc, char* argv[])
     while(iteration++ < 1000)
     {
         simulator.CleanBuffer();
-        // simulator.VortConfinement();
+        simulator.VortConfinement();
         simulator.AnimateVel();
         simulator.AnimateTex();
         simulator.AnimateDen();
@@ -123,12 +126,18 @@ int main(int argc, char* argv[])
                 //     1.0f - d }};
 
                 auto uv = simulator.GetTextureCoord(i, j);
-                // i, j is btw [0, 512]
+                // i, j is btw [0, image_width or image_height]
+
+                size_t texCoordX = (uv.first / image_width) * (size_t)texWidth;
+                size_t texCoordY = (uv.second / image_height) * (size_t)texHeight;
+
+                // std::cout << texCoordX << ", " << texCoordY << "\n";
+
                 hmm_vec3 color{{0.0f, 0.0f, 0.0f}};
-                color += sample_tex(uv.first, uv.second);
-                color += sample_tex(uv.first+1, uv.second);
-                color += sample_tex(uv.first, uv.second+1);
-                color += sample_tex(uv.first+1, uv.second+1);
+                color += sample_tex(texCoordX, texCoordY);
+                color += sample_tex(texCoordX+1, texCoordY);
+                color += sample_tex(texCoordX, texCoordY+1);
+                color += sample_tex(texCoordX+1, texCoordY+1);
                 color *= 0.25f;
 
                 // hmm_vec3 color{{
