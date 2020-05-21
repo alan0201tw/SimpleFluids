@@ -90,30 +90,37 @@ int main(int argc, char* argv[])
     StableFluidSimulator simulator(image_width, image_height);
     simulator.Reset();
 
-    for(size_t i = image_width/2 - 50; i < image_width/2 + 50; ++i)
+    for(size_t i = 0; i < image_width; ++i)
     {
-        for(size_t j = image_height/2 - 50; j < image_height/2 + 50; ++j)
+        for(size_t j = 0; j < image_height; ++j)
         {
-            // std::cout << i << ", " << j << std::endl;
-            simulator.SetVX0(i, j, 15.0f * (2.0f * drand48() - 1.0f));
-            simulator.SetVY0(i, j, 15.0f * (2.0f * drand48() - 1.0f));
-            // simulator.SetVX0(i, j, 1.0f);
-            // simulator.SetVY0(i, j, 1.0f);
-            simulator.SetD0(i, j, 10.0f);
+            auto uv = simulator.GetTextureCoord(i, j);
+            size_t texCoordX = (uv.first / image_width) * (size_t)texWidth;
+            size_t texCoordY = (uv.second / image_height) * (size_t)texHeight;
+
+            auto color01 = sample_tex(texCoordX, texCoordY) / 255.0f;
+            // std::cout << color01[0] << ", " 
+            //     << color01[1] << ", " 
+            //     << color01[2] << std::endl;
+            // for automatic animation, use color as the initial velocity
+            {
+                float vx0 = 2e2f*(color01[0] + color01[2]);
+                simulator.SetVX0(i, j, vx0);
+            }
+            {
+                float vy0 = 2e2f*(color01[1] + color01[2]);
+                simulator.SetVY0(i, j, vy0);
+            }
+            // density not set
+            // simulator.SetD0(i, j, 1.0f*(color01[0] + color01[1] + color01[2]));
         }
     }
-    simulator.AddSource();
 
     size_t iteration = 0;
+    simulator.AddSource();
     
     while(iteration++ < 1000)
     {
-        simulator.CleanBuffer();
-        simulator.VortConfinement();
-        simulator.AnimateVel();
-        simulator.AnimateTex();
-        simulator.AnimateDen();
-
         for(size_t i = 1; i < image_width-1; ++i)
         {
             for(size_t j = 1; j < image_height-1; ++j)
@@ -150,5 +157,11 @@ int main(int argc, char* argv[])
         }
 
         output_image_to_file("output/image" + std::to_string(iteration) + ".png");
+
+        simulator.CleanBuffer();
+        simulator.VortConfinement();
+        simulator.AnimateVel();
+        simulator.AnimateTex();
+        simulator.AnimateDen();
     }
 }
