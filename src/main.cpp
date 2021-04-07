@@ -112,7 +112,7 @@ int main(int argc, char* argv[])
                 simulator.SetVY0(i, j, vy0);
             }
             // density not set
-            // simulator.SetD0(i, j, 1.0f*(color01[0] + color01[1] + color01[2]));
+             simulator.SetD0(i, j, 1.0f*(color01[0] + color01[1] + color01[2]));
         }
     }
 
